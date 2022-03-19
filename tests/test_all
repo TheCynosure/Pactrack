@@ -16,13 +16,19 @@ echo "Testing install logic."
 
 test $(cat .pactrack | wc -l) -eq 2
 
+# Installing twice shouldn't add a new package to the file.
+echo "Testing double install logic."
+./pactrack -S test
+
+test $(cat .pactrack | wc -l) -eq 2
+
 # Should remove on of the packages.
 echo "Testing removal logic."
 ./pactrack -R man-db
 
 test $(cat .pactrack | wc -l) -eq 1
 
-# Should call remove_all
+# Should call remove_all and do nothing to the .pactrack file.
 echo "Testing remove all."
 ./pactrack remove_all
 
