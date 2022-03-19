@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# I don't want to install packages during tests.
+export PACTRACK_MOCK_MODE=1
+
+# Clean env.
+rm -f .pactrack
+touch .pactrack
+
+# Exit on failure, makes testing easier.
+set -e
+
+# Should install both of these in the .pactrack file.
+echo "Testing install logic."
+./pactrack -S man-db test
+
+test $(cat .pactrack | wc -l) -eq 2
+
+# Should remove on of the packages.
+echo "Testing removal logic."
+./pactrack -R man-db
+
+test $(cat .pactrack | wc -l) -eq 1
+
+# Should call remove_all
+echo "Testing remove all."
+./pactrack remove_all
+
+test $(cat .pactrack | wc -l) -eq 1
+
+# Remove last package.
+echo "Testing removal once more."
+./pactrack -R test
+
+test $(cat .pactrack | wc -l) -eq 0

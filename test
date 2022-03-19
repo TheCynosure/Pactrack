@@ -1,0 +1,12 @@
+#!/bin/bash
+
+RED='\033[1;31m'
+GREEN='\033[0;32m'
+NO_COLOR='\033[0m'
+
+bash tests/test_all
+if [ $? != 0 ]; then
+  echo -e "$RED => Failed tests$NO_COLOR"
+else
+  echo -e "$GREEN => Passed tests$NO_COLOR"
+fi
