@@ -1,0 +1,99 @@
+#!/usr/bin/bash
+
+# Basic function that takes an arg name and decides if it is a package.
+# Right now anything that does not start with a hyphen is treated as a package.
+function is_package() {
+  echo $1 | grep -v -E -- "^-.*" &>/dev/null
+}
+
+function debug_mode() {
+  test ! -z ${PACTRACK_DEBUG+x}
+}
+
+function find_up() {
+  while [ $(pwd) != "/" ] &&  ! ls -a | grep $1 &>/dev/null; do
+    cd ..    
+  done
+  if ls -a | grep $1 &>/dev/null; then
+    echo "$(pwd)/.pactrack"
+  else
+    if debug_mode; then
+      echo 1>&2 "[ERROR] No $1 found, exiting."
+    fi
+    return 1
+  fi
+}
+
+# Takes a package name and writes it to the pactrack file if it isn't present yet.
+function record_package() {
+  # Find the first pactrack file in a parent directory.
+  _PACTRACK_PATH=$(find_up .pactrack)
+  if [[ $? -eq 1 ]]; then
+    return 1
+  fi
+  # Now we have a valid pactrack path, so we can record it to this file,
+  # if it's not already there.
+  if ! cat $_PACTRACK_PATH | grep $1 &>/dev/null; then
+    echo $1 >>"$_PACTRACK_PATH"
+  fi
+}
+
+# Takes the package name and removes it form the pactrack file if it is present.
+function remove_package() {
+  _PACTRACK_PATH=$(find_up .pactrack)
+  if [[ $? -eq 1 ]]; then
+    return 1
+  fi
+  if cat $_PACTRACK_PATH | grep $1 &>/dev/null; then
+    sed -i "/$1/d" $_PACTRACK_PATH
+  fi
+}
+
+function record_packages() {
+  if echo "$@" | grep -- "-S" &>/dev/null; then
+    # If this is a sync command find all the args not starting with -. Assume these are package names.
+    for package_name in $@; do
+      if is_package $package_name; then
+        if debug_mode; then
+          echo  "[DEBUG] Recording $package_name"
+        fi
+        if ! record_package $package_name; then 
+          if debug_mode; then
+            echo  "[DEBUG] Failed to record $package_name"
+          fi
+        fi
+      fi
+    done
+  elif echo "$@" | grep -- "-R" &>/dev/null; then
+    for package_name in $@; do
+      if is_package $package_name; then
+        if debug_mode; then
+          echo  "[DEBUG] Removing $package_name"
+        fi
+        if ! remove_package $package_name; then 
+          if debug_mode; then
+            echo  "[DEBUG] Failed to remove $package_name"
+          fi
+        fi
+      fi
+    done
+  fi
+
+}
+
+if [[ $1 = "remove_all" ]]; then
+  _PACTRACK_PATH=$(find_up .pactrack)
+  if [[ $? -eq 1 ]]; then
+    exit 1
+  fi
+  if [[ -z $(cat $_PACTRACK_PATH) ]]; then
+    # Nothing to do
+    exit 0
+  fi
+  exec /usr/bin/pacman -R $(cat $_PACTRACK_PATH)
+fi
+
+if /usr/bin/pacman $@; then
+  record_packages $@
+fi
+
