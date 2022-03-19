@@ -6,8 +6,30 @@ function is_package() {
   echo $1 | grep -v -E -- "^-.*" &>/dev/null
 }
 
+# Returns whether debug mode is enabled.
 function debug_mode() {
   test ! -z ${PACTRACK_DEBUG+x}
+}
+
+# Takes a string and logs if debug mode is enabled.
+function debug_log() {
+  if debug_mode; then
+    echo "[DEBUG] $1"
+  fi
+}
+
+# Takes a string and logs to stderr if debug mode is enabled.
+function error_log() {
+  if debug_mode; then
+    echo 1>&2 "[ERROR] $1"
+  fi
+}
+
+# Call pacman, but not when in mock mode (for testing).
+function call_pacman() {
+  if [ -z ${PACTRACK_MOCK_MODE+x} ]; then
+    /usr/bin/pacman $@
+  fi
 }
 
 function find_up() {
@@ -17,15 +39,13 @@ function find_up() {
   if ls -a | grep $1 &>/dev/null; then
     echo "$(pwd)/.pactrack"
   else
-    if debug_mode; then
-      echo 1>&2 "[ERROR] No $1 found, exiting."
-    fi
+    error_log "No $1 found"
     return 1
   fi
 }
 
 # Takes a package name and writes it to the pactrack file if it isn't present yet.
-function record_package() {
+function add_package() {
   # Find the first pactrack file in a parent directory.
   _PACTRACK_PATH=$(find_up .pactrack)
   if [[ $? -eq 1 ]]; then
@@ -38,7 +58,7 @@ function record_package() {
   fi
 }
 
-# Takes the package name and removes it form the pactrack file if it is present.
+# Takes the package name and removes it from the pactrack file if it is present.
 function remove_package() {
   _PACTRACK_PATH=$(find_up .pactrack)
   if [[ $? -eq 1 ]]; then
@@ -49,51 +69,64 @@ function remove_package() {
   fi
 }
 
-function record_packages() {
-  if echo "$@" | grep -- "-S" &>/dev/null; then
-    # If this is a sync command find all the args not starting with -. Assume these are package names.
-    for package_name in $@; do
-      if is_package $package_name; then
-        if debug_mode; then
-          echo  "[DEBUG] Recording $package_name"
-        fi
-        if ! record_package $package_name; then 
-          if debug_mode; then
-            echo  "[DEBUG] Failed to record $package_name"
-          fi
-        fi
+# For all arguments not starting with a hyphen, add them to the pactrack
+# file.
+function add_packages() {
+  for package_name in $@; do
+    if is_package $package_name; then
+      debug_log "Adding $package_name"
+      if ! add_package $package_name; then 
+        error_log "Failed to add $package_name"
       fi
-    done
-  elif echo "$@" | grep -- "-R" &>/dev/null; then
-    for package_name in $@; do
-      if is_package $package_name; then
-        if debug_mode; then
-          echo  "[DEBUG] Removing $package_name"
-        fi
-        if ! remove_package $package_name; then 
-          if debug_mode; then
-            echo  "[DEBUG] Failed to remove $package_name"
-          fi
-        fi
-      fi
-    done
-  fi
-
+    fi
+  done
 }
 
+# For all arguments not starting with a hyphen, remove them from the pactrack
+# file.
+function remove_packages() {
+  for package_name in $@; do
+    if is_package $package_name; then
+      debug_log "Removing $package_name"
+      if ! remove_package $package_name; then 
+        error_log "Failed to remove $package_name"
+      fi
+    fi
+  done
+}
+
+# Parse the pacman arguments and decide whether to add or remove packages.
+function parse_pacman_args() {
+  if echo "$@" | grep -- "-S" &>/dev/null; then
+    debug_log "Add packages"
+    # If this is a sync command find all the args not starting with -. Assume these are package names.
+    add_packages $@
+  elif echo "$@" | grep -- "-R" &>/dev/null; then
+    # Same package logic as above, but now removing packages.
+    remove_packages $@
+  fi
+}
+
+if [[ $1 = "-h" ]]; then
+  echo "Pactrack uses pacman under the hood, use the options for pacman. Unless you want to remove local dependencies then use: pactrack remove_all"
+  call_pacman -h
+fi
+
+# Remove all command uninstalls all the packages in the pactrack file.
 if [[ $1 = "remove_all" ]]; then
   _PACTRACK_PATH=$(find_up .pactrack)
+  # If we failed to find a pactrack file, just fail out.
   if [[ $? -eq 1 ]]; then
+    error_log "No pactrack file in current or parent folders."
     exit 1
   fi
+  # If the pactrack file is empty, not point in calling pacman.
   if [[ -z $(cat $_PACTRACK_PATH) ]]; then
     # Nothing to do
     exit 0
   fi
-  exec /usr/bin/pacman -R $(cat $_PACTRACK_PATH)
-fi
-
-if /usr/bin/pacman $@; then
-  record_packages $@
+  call_pacman -R $(cat $_PACTRACK_PATH)
+elif call_pacman $@; then
+  parse_pacman_args $@
 fi
 
